@@ -1,0 +1,6 @@
+; Builds main.ml into the `engine` command: run it with `dune exec engine`.
+(executable
+ (name main)
+ (public_name engine)
+ (package engine)
+ (libraries engine))

@@ -1,0 +1,4 @@
+; Every .ml file in this directory becomes a module of the library.
+; Other directories use them as Engine.Ord, Engine.Ir, ...
+(library
+ (name engine))
