@@ -197,13 +197,16 @@ let () =
   assert (CellMap.is_empty c.cells);
   assert (StringMap.find "tail" c.roles = Writer { current = 1 });
   assert (last_req c = Engine.Ord.Rel);
-  (* storing the same value transfers nothing *)
+  (* storing the same value again transfers nothing, but a reader can still
+     read it and gain the payload published at 1, so under C++20 release
+     sequences it must be rel too (P0982) *)
   let c =
     step
       (ctx_with [ ("tail", Writer { current = 1 }) ])
       (Store { acc = tail_acc; value = Int 1 })
   in
-  assert (last_req c = Engine.Ord.Rlx)
+  assert (CellMap.is_empty c.cells);
+  assert (last_req c = Engine.Ord.Rel)
 
 let () =
   let store_from cells role v =
@@ -334,3 +337,36 @@ let () =
   assert (
     List.map (fun (r : requirement) -> r.label) (check_thread ring_like th)
     = [ "first"; "second"; "third" ])
+
+(* Release sequences (C++20, P0982): a store must be rel if any value from
+   init + 1 up to the stored value carries a payload, because a reader that
+   reads this store synchronizes only with this store. A protocol here
+   publishes at every value or at none, so the case this adds is a store of a
+   value already stored. *)
+let store_req decl current v =
+  last_req
+    (check_stmt
+       { ring_like with atomics = [ decl ] }
+       (ctx_with [ (decl.atom_name, Writer { current }) ])
+       (Store { acc = { label = "s"; atom = decl.atom_name }; value = Int v }))
+
+let () =
+  (* a second store of 1, as in test.c *)
+  assert (store_req tail_decl 1 1 = Engine.Ord.Rel);
+  (* storing the initial value: nothing has been published at or below it *)
+  assert (store_req tail_decl 0 0 = Engine.Ord.Rlx)
+
+let () =
+  (* an atomic that never carries a payload stays rlx, even when repeated *)
+  let flag =
+    {
+      atom_name = "flag";
+      init = 0;
+      writer = "p";
+      reader = Some "c";
+      protocol = { binder = "v"; payload = [] };
+    }
+  in
+  assert (store_req flag 0 1 = Engine.Ord.Rlx);
+  assert (store_req flag 1 1 = Engine.Ord.Rlx);
+  assert (store_req flag 1 5 = Engine.Ord.Rlx)

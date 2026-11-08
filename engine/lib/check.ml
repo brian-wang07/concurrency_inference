@@ -164,7 +164,9 @@ let rec check_stmt prog ctx s =
                     "%s stored %d after %d, but counters must be monotone"
                     acc.atom v current))
           else
-            let d = delta prog (atomic prog acc.atom).protocol current v in
+            (* P0982: same-thread stores do not participate in release sequences *)
+            let decl = atomic prog acc.atom in
+            let d = delta prog decl.protocol current v in
             let publish cells (c, expected) =
               match (CellMap.find_opt c cells, expected) with
               | None, _ ->
@@ -187,8 +189,9 @@ let rec check_stmt prog ctx s =
               StringMap.add acc.atom (Writer { current = v }) ctx.roles
             in
             let ctx = { ctx with cells; roles } in
-            if d = [] then require ctx acc.label Ord.Rlx "store"
-            else require ctx acc.label Ord.Rel "store"
+            if delta prog decl.protocol decl.init v = [] then
+              require ctx acc.label Ord.Rlx "no payload for this value"
+            else require ctx acc.label Ord.Rel "possible synchronization"
       | Reader _ | Bystander ->
           raise (Type_error ("store to " ^ acc.atom ^ " by a non-writer")))
   | Await { acc; bound } -> (

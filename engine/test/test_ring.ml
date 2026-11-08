@@ -327,3 +327,36 @@ let () =
             consumer;
           ];
       })
+
+(* test.c as a program: the producer publishes slots[0] |-> 1 at tail = 1,
+   then stores 1 again. The consumer may read the second store, so under
+   C++20 release sequences both stores need rel. *)
+let () =
+  let redundant =
+    {
+      thread_name = "producer";
+      owns = owns_slots (i 0) (p "N");
+      body =
+        [
+          NaWrite { arr = "slots"; idx = i 0; value = i 1 };
+          Store { acc = { label = "first"; atom = "tail" }; value = i 1 };
+          Store { acc = { label = "again"; atom = "tail" }; value = i 1 };
+        ];
+    }
+  in
+  let reader =
+    {
+      thread_name = "consumer";
+      owns = [];
+      body =
+        [
+          Await { acc = { label = "wait"; atom = "tail" }; bound = i 1 };
+          NaRead { dst = "x"; arr = "slots"; idx = i 0 };
+          Assert { lhs = v "x"; rhs = i 1 };
+        ];
+    }
+  in
+  let o = orders { ring with threads = [ redundant; reader ] } in
+  assert (List.assoc "first" o = Engine.Ord.Rel);
+  assert (List.assoc "again" o = Engine.Ord.Rel);
+  assert (List.assoc "wait" o = Engine.Ord.Acq)
