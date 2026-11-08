@@ -226,4 +226,12 @@ let () =
   let o = orders { ring with threads = [ redundant; reader ] } in
   assert (List.assoc "first" o = Engine.Ord.Rel);
   assert (List.assoc "again" o = Engine.Ord.Rel);
+  (* the redundant store's reason names the atomic and value it re-stores *)
+  let again =
+    List.find
+      (fun (r : Engine.Check.requirement) ->
+        r.label = "again" && r.at_least = Engine.Ord.Rel)
+      (Engine.Check.check_program { ring with threads = [ redundant; reader ] })
+  in
+  assert (again.reason = "a reader of tail = 1 may gain an earlier payload");
   assert (List.assoc "wait" o = Engine.Ord.Acq)

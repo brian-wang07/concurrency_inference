@@ -158,3 +158,13 @@ let () =
   match Solve.reason rs "a" with
   | Some r -> assert (r.label = "a" && r.loops = [ ("i", 1) ])
   | None -> assert false
+
+(* The reason text says what each ordering protects. *)
+let reason_text label =
+  match Solve.reason reqs label with Some r -> r.reason | None -> ""
+
+let () =
+  assert (reason_text "p.tail_store" = "publishes slots[0] = 1");
+  assert (reason_text "p.head_await" = "gains slots[0]");
+  assert (reason_text "c.tail_await" = "gains slots[0] = 1");
+  assert (reason_text "c.head_store" = "publishes slots[0]")

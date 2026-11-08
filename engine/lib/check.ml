@@ -86,6 +86,15 @@ let delta prog proto from to_ =
   let values = List.init (max 0 (to_ - from)) (fun k -> from + 1 + k) in
   List.concat_map (instantiate prog proto) values
 
+let delta_to_string d =
+  String.concat ", "
+    (List.map
+       (fun ((arr, i), v) ->
+         match v with
+         | Known n -> Printf.sprintf "%s[%d] = %d" arr i n
+         | Unknown -> Printf.sprintf "%s[%d]" arr i)
+       d)
+
 let atomic prog name =
   match List.find_opt (fun d -> d.atom_name = name) prog.atomics with
   | Some d -> d
@@ -190,8 +199,13 @@ let rec check_stmt prog ctx s =
             in
             let ctx = { ctx with cells; roles } in
             if delta prog decl.protocol decl.init v = [] then
-              require ctx acc.label Ord.Rlx "no payload for this value"
-            else require ctx acc.label Ord.Rel "possible synchronization"
+              require ctx acc.label Ord.Rlx "nothing published up to this value"
+            else if d <> [] then
+              require ctx acc.label Ord.Rel ("publishes " ^ delta_to_string d)
+            else
+              require ctx acc.label Ord.Rel
+                (Printf.sprintf
+                   "a reader of %s = %d may gain an earlier payload" acc.atom v)
       | Reader _ | Bystander ->
           raise (Type_error ("store to " ^ acc.atom ^ " by a non-writer")))
   | Await { acc; bound } -> (
@@ -218,8 +232,8 @@ let rec check_stmt prog ctx s =
               StringMap.add acc.atom (Reader { claimed = b }) ctx.roles
             in
             let ctx = { ctx with cells; roles } in
-            if d = [] then require ctx acc.label Ord.Rlx "await"
-            else require ctx acc.label Ord.Acq "await")
+            if d = [] then require ctx acc.label Ord.Rlx "no payload"
+            else require ctx acc.label Ord.Acq ("gains " ^ delta_to_string d))
   | For { var; lo; hi; body } ->
       let lo = eval_known prog ctx.env lo in
       let hi = eval_known prog ctx.env hi in
