@@ -124,3 +124,121 @@ let ring =
   }
 
 let () = assert (List.length ring.threads = 2)
+
+(* A stand-in for Solve: join each label's requirements into one ordering. *)
+let solve reqs =
+  List.fold_left
+    (fun acc (r : Engine.Check.requirement) ->
+      let cur =
+        Option.value ~default:Engine.Ord.Rlx (List.assoc_opt r.label acc)
+      in
+      (r.label, Engine.Ord.join cur r.at_least) :: List.remove_assoc r.label acc)
+    [] reqs
+
+let orders prog = List.sort compare (solve (Engine.Check.check_program prog))
+let with_params n k prog = { prog with params = [ ("N", n); ("K", k) ] }
+
+(* The orderings from the hand proof. *)
+let () =
+  assert (
+    orders ring
+    = [
+        ("c.head_load", Engine.Ord.Rlx);
+        ("c.head_store", Engine.Ord.Rel);
+        ("c.tail_await", Engine.Ord.Acq);
+        ("p.head_await", Engine.Ord.Acq);
+        ("p.tail_load", Engine.Ord.Rlx);
+        ("p.tail_store", Engine.Ord.Rel);
+      ])
+
+(* With K <= N no slot is reused, so the producer never needs the acquire. *)
+let () =
+  let o = orders (with_params 2 2 ring) in
+  assert (List.assoc "p.head_await" o = Engine.Ord.Rlx);
+  assert (List.assoc "c.head_store" o = Engine.Ord.Rel);
+  assert (List.assoc "c.tail_await" o = Engine.Ord.Acq)
+
+(* The acquire comes from slot reuse alone: only i = 2 needs it. *)
+let () =
+  let acq =
+    List.filter
+      (fun (r : Engine.Check.requirement) ->
+        r.label = "p.head_await" && r.at_least = Engine.Ord.Acq)
+      (Engine.Check.check_program ring)
+  in
+  assert (
+    List.map (fun (r : Engine.Check.requirement) -> r.loops) acq
+    = [ [ ("i", 2) ] ])
+
+(* Other bounds are accepted, and give the same answer once K > N. *)
+let () =
+  assert (orders (with_params 1 3 ring) = orders ring);
+  assert (orders (with_params 3 7 ring) = orders ring)
+
+(* Broken variants: each raises Type_error. *)
+let rejects prog =
+  match Engine.Check.check_program prog with
+  | _ -> false
+  | exception Engine.Check.Type_error _ -> true
+
+let replace_body th body =
+  match th.body with
+  | [ For f ] -> { th with body = [ For { f with body } ] }
+  | _ -> assert false
+
+let loop_body th = match th.body with [ For f ] -> f.body | _ -> assert false
+
+let () =
+  (* the producer starts with no slots *)
+  assert (
+    rejects { ring with threads = [ { producer with owns = [] }; consumer ] });
+  (* tail promises a different value from the one the producer writes *)
+  let off_by_one =
+    {
+      binder = "v";
+      payload =
+        [
+          PointsTo
+            {
+              arr = "slots";
+              idx = Mod (Sub (v "v", i 1), p "N");
+              value = Add (v "v", i 1);
+            };
+        ];
+    }
+  in
+  assert (
+    rejects
+      {
+        ring with
+        atomics =
+          List.map
+            (fun d ->
+              if d.atom_name = "tail" then { d with protocol = off_by_one }
+              else d)
+            ring.atomics;
+      });
+  (* the consumer reads the slot before awaiting it *)
+  let no_await =
+    List.filter (function Await _ -> false | _ -> true) (loop_body consumer)
+  in
+  assert (
+    rejects { ring with threads = [ producer; replace_body consumer no_await ] });
+  (* the producer waits for too little space, so it reuses a slot it gave away *)
+  let early =
+    List.map
+      (function
+        | Await a -> Await { a with bound = Sub (v "t", p "N") } | s -> s)
+      (loop_body producer)
+  in
+  assert (
+    rejects { ring with threads = [ replace_body producer early; consumer ] });
+  (* the consumer asserts the wrong value *)
+  let wrong_assert =
+    List.map
+      (function Assert a -> Assert { a with rhs = Add (v "h", i 2) } | s -> s)
+      (loop_body consumer)
+  in
+  assert (
+    rejects
+      { ring with threads = [ producer; replace_body consumer wrong_assert ] })

@@ -9,6 +9,20 @@ type expr =
   | Sub of expr * expr
   | Mod of expr * expr (* euclidean mod *)
 
+(* for error handling *)
+let rec expr_to_string e =
+  let operand x =
+    match x with
+    | Int _ | Param _ | Var _ -> expr_to_string x
+    | _ -> "(" ^ expr_to_string x ^ ")"
+  in
+  match e with
+  | Int n -> string_of_int n
+  | Param x | Var x -> x
+  | Add (a, b) -> Printf.sprintf "%s + %s" (operand a) (operand b)
+  | Sub (a, b) -> Printf.sprintf "%s - %s" (operand a) (operand b)
+  | Mod (a, b) -> Printf.sprintf "%s %% %s" (operand a) (operand b)
+
 type res =
   | Own of { arr : string; idx : expr }
   | PointsTo of { arr : string; idx : expr; value : expr }
