@@ -242,3 +242,88 @@ let () =
   assert (
     rejects
       { ring with threads = [ producer; replace_body consumer wrong_assert ] })
+
+(* Declaration checks: rejected for the stated reason, before any thread runs. *)
+let contains s sub =
+  let n = String.length sub in
+  let rec go i =
+    i + n <= String.length s && (String.sub s i n = sub || go (i + 1))
+  in
+  go 0
+
+let rejects_with reason prog =
+  match Engine.Check.check_program prog with
+  | _ -> false
+  | exception Engine.Check.Type_error m -> contains m reason
+
+let owns_slots lo hi = [ { owned_arr = "slots"; from_idx = lo; to_idx = hi } ]
+
+let () =
+  (* the consumer also starts with every slot *)
+  assert (
+    rejects_with "initially owned by both producer and consumer"
+      {
+        ring with
+        threads = [ producer; { consumer with owns = producer.owns } ];
+      });
+  (* one shared cell is enough *)
+  assert (
+    rejects_with "slots[1] is initially owned by both"
+      {
+        ring with
+        threads = [ producer; { consumer with owns = owns_slots (i 1) (i 2) } ];
+      });
+  (* adjacent ranges don't overlap, since ranges are half-open *)
+  Engine.Check.check_disjoint_ownership
+    {
+      ring with
+      threads =
+        [
+          { producer with owns = owns_slots (i 0) (i 1) };
+          { consumer with owns = owns_slots (i 1) (i 2) };
+        ];
+    }
+
+let () =
+  assert (
+    rejects_with "thread producer is declared twice"
+      {
+        ring with
+        threads = [ producer; { consumer with thread_name = "producer" } ];
+      });
+  assert (
+    rejects_with "atomic tail is declared twice"
+      { ring with atomics = ring.atomics @ [ List.hd ring.atomics ] });
+  assert (
+    rejects_with "array slots is declared twice"
+      { ring with arrays = ring.arrays @ ring.arrays })
+
+(* Owned ranges must lie inside a declared array. *)
+let () =
+  assert (
+    rejects
+      {
+        ring with
+        threads = [ { producer with owns = owns_slots (i 0) (i 5) }; consumer ];
+      });
+  assert (
+    rejects
+      {
+        ring with
+        threads =
+          [ { producer with owns = owns_slots (i (-1)) (p "N") }; consumer ];
+      });
+  assert (
+    rejects
+      {
+        ring with
+        threads =
+          [
+            {
+              producer with
+              owns =
+                [ { owned_arr = "sloots"; from_idx = i 0; to_idx = p "N" } ];
+            };
+            consumer;
+          ];
+      })

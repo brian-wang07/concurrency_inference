@@ -161,8 +161,8 @@ let rec check_stmt prog ctx s =
             raise
               (Type_error
                  (Printf.sprintf
-                    "%s stored %d after %d, but counters be monotone" acc.atom v
-                    current))
+                    "%s stored %d after %d, but counters must be monotone"
+                    acc.atom v current))
           else
             let d = delta prog (atomic prog acc.atom).protocol current v in
             let publish cells (c, expected) =
@@ -242,10 +242,17 @@ let initial prog th =
   let add_range cells r =
     let lo = eval_known prog StringMap.empty r.from_idx in
     let hi = eval_known prog StringMap.empty r.to_idx in
-    let indicies = List.init (max 0 (hi - lo)) (fun j -> lo + j) in
-    List.fold_left
-      (fun cells k -> CellMap.add (r.owned_arr, k) Unknown cells)
-      cells indicies
+    if 0 > lo || hi > size prog r.owned_arr then
+      raise
+        (Type_error
+           (Printf.sprintf "%s owns %s[%d..%d) but %s has size %d"
+              th.thread_name r.owned_arr lo hi r.owned_arr
+              (size prog r.owned_arr)))
+    else
+      let indicies = List.init (max 0 (hi - lo)) (fun j -> lo + j) in
+      List.fold_left
+        (fun cells k -> CellMap.add (r.owned_arr, k) Unknown cells)
+        cells indicies
   in
   let role_of d =
     if d.writer = th.thread_name then Writer { current = d.init }
@@ -268,4 +275,38 @@ let check_thread prog th =
   (* require adds each requirement to the front of the list so reverse to restore program order *)
   List.rev ctx.reqs
 
-let check_program prog = List.concat_map (check_thread prog) prog.threads
+module StringSet = Set.Make (String)
+
+(* ensure unique thread and atomic names *)
+let check_unique kind names =
+  ignore
+    (List.fold_left
+       (fun seen n ->
+         if StringSet.mem n seen then
+           raise (Type_error (Printf.sprintf "%s %s is declared twice" kind n))
+         else StringSet.add n seen)
+       StringSet.empty names)
+
+(* ensure initial ownership is disjoint *)
+let check_disjoint_ownership prog =
+  let claim owners th =
+    let cells = (initial prog th).cells in
+    CellMap.fold
+      (fun c _ owners ->
+        match CellMap.find_opt c owners with
+        | Some other ->
+            raise
+              (Type_error
+                 (Printf.sprintf "%s[%d] is initially owned by both %s and %s"
+                    (fst c) (snd c) other th.thread_name))
+        | None -> CellMap.add c th.thread_name owners)
+      cells owners
+  in
+  ignore (List.fold_left claim CellMap.empty prog.threads)
+
+let check_program prog =
+  check_unique "thread" (List.map (fun th -> th.thread_name) prog.threads);
+  check_unique "atomic" (List.map (fun d -> d.atom_name) prog.atomics);
+  check_unique "array" (List.map (fun d -> d.arr_name) prog.arrays);
+  check_disjoint_ownership prog;
+  List.concat_map (check_thread prog) prog.threads
