@@ -1,5 +1,5 @@
 ; Each name is an executable that `dune test` runs. A test fails if it exits
 ; with a non-zero status, which an uncaught failed `assert` causes.
 (tests
- (names test_ord test_ring test_check test_solve test_codegen test_parse)
+ (names test_ord test_ring test_check test_solve test_codegen test_parse test_wf)
  (libraries engine))
