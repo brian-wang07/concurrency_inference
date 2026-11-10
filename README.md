@@ -17,7 +17,7 @@ dune exec engine -- emit <program>.sexp --pin some.label=[rlx, acq, rel, acq_rel
 ```
 Inferred orderings can be cross-checked with genmc to verify that the program is consistent as well as ensuring that the orderings are the weakest possible. use
 ```
-GENMC = path/to/genmc/binary dune exec oracle/oracle.exe -- <program>.sexp
+GENMC=path/to/genmc/binary dune exec oracle/oracle.exe -- <program>.sexp
 ```
 Unsound means that GenMC found an error in the inferred orderings: please report this! Imprecise means that a weaker ordering was found, and ERROR n / TIMEOUT means that GenMC failed, usually because codegen created a C++ file that GenMC couldnt handle or the parameters are too big. 
 
