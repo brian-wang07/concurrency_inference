@@ -33,8 +33,11 @@ let () = assert (Parse.parse_program ring_src = Ring.ring)
 
 (* ...so it checks, infers and generates the same way. *)
 let () =
-  let reqs = Check.check_program (Parse.parse_program ring_src) in
-  assert (Solve.infer reqs = Solve.infer (Check.check_program Ring.ring))
+  let prog = Parse.parse_program ring_src in
+  let reqs = Check.check_program prog in
+  assert (
+    Solve.infer (Wf.program_labels prog) reqs
+    = Solve.infer (Wf.program_labels Ring.ring) (Check.check_program Ring.ring))
 
 let error src =
   match Parse.parse_program src with

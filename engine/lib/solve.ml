@@ -11,23 +11,26 @@ type violation = {
 
 exception Bad_pin of string
 
-let infer (reqs : Check.requirement list) : sigma =
+let infer (labels : string list) (reqs : Check.requirement list) : sigma =
   let joined =
     List.fold_left
       (fun acc (r : Check.requirement) ->
         let cur = Option.value ~default:Ord.Rlx (List.assoc_opt r.label acc) in
         (r.label, Ord.join cur r.at_least) :: List.remove_assoc r.label acc)
-      [] reqs
+      (List.map (fun l -> (l, Ord.Rlx)) (List.sort_uniq compare labels))
+      reqs
   in
   List.sort compare joined
 
-let check (reqs : Check.requirement list) (pins : sigma) : violation list =
+let check (labels : string list) (reqs : Check.requirement list) (pins : sigma)
+    : violation list =
   List.concat_map
     (fun (label, pinned) ->
+      if not (List.mem label labels) then
+        raise (Bad_pin ("no access labelled " ^ label));
       let mine =
         List.filter (fun (r : Check.requirement) -> r.label = label) reqs
       in
-      if mine = [] then raise (Bad_pin ("no access labelled " ^ label));
       let unmet =
         List.filter
           (fun (r : Check.requirement) -> not (Ord.leq r.at_least pinned))

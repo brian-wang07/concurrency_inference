@@ -3,3 +3,8 @@
 (tests
  (names test_ord test_ring test_check test_solve test_codegen test_parse test_wf)
  (libraries engine))
+
+; Cram tests (*.t): shell commands and their expected output. They run the
+; engine command on the corpus, so both are dependencies.
+(cram
+ (deps %{bin:engine} %{project_root}/corpus/spsc_ring.sexp))

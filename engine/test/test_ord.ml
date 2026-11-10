@@ -59,3 +59,10 @@ let () =
         "std::memory_order_acq_rel";
         "std::memory_order_seq_cst";
       ])
+
+(* of_string inverts to_string and rejects anything else. *)
+let () =
+  List.iter (fun o -> assert (of_string (to_string o) = Some o)) all;
+  List.iter
+    (fun s -> assert (of_string s = None))
+    [ ""; "relaxed"; "RLX"; "acqrel"; "seq_cst"; " rlx" ]

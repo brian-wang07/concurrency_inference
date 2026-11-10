@@ -5,7 +5,8 @@ let req label at_least loops : Check.requirement =
   { label; at_least; loops; reason = "test" }
 
 let reqs = Check.check_program ring
-let sigma = Solve.infer reqs
+let labels = Wf.program_labels ring
+let sigma = Solve.infer labels reqs
 
 (* infer: the hand proof's table, sorted by label. *)
 let () =
@@ -22,27 +23,54 @@ let () =
 
 (* infer joins in the lattice: acq and rel on one label give acq_rel. *)
 let () =
-  assert (Solve.infer [] = []);
-  assert (Solve.infer [ req "a" Ord.Rlx [] ] = [ ("a", Ord.Rlx) ]);
+  assert (Solve.infer [] [] = []);
+  assert (Solve.infer [ "a" ] [ req "a" Ord.Rlx [] ] = [ ("a", Ord.Rlx) ]);
   assert (
-    Solve.infer [ req "a" Ord.Acq []; req "a" Ord.Rel []; req "a" Ord.Rlx [] ]
+    Solve.infer [ "a" ]
+      [ req "a" Ord.Acq []; req "a" Ord.Rel []; req "a" Ord.Rlx [] ]
     = [ ("a", Ord.AcqRel) ]);
   assert (
-    Solve.infer [ req "b" Ord.Rel []; req "a" Ord.Rlx []; req "b" Ord.Rlx [] ]
+    Solve.infer [ "a"; "b" ]
+      [ req "b" Ord.Rel []; req "a" Ord.Rlx []; req "b" Ord.Rlx [] ]
     = [ ("a", Ord.Rlx); ("b", Ord.Rel) ])
+
+(* infer: a label with no requirements (an access that never runs) is rlx,
+   and every label appears exactly once. *)
+let () =
+  assert (Solve.infer [ "a" ] [] = [ ("a", Ord.Rlx) ]);
+  assert (
+    Solve.infer [ "b"; "a"; "c" ] [ req "a" Ord.Acq [] ]
+    = [ ("a", Ord.Acq); ("b", Ord.Rlx); ("c", Ord.Rlx) ]);
+  assert (Solve.infer [ "a"; "a" ] [ req "a" Ord.Rel [] ] = [ ("a", Ord.Rel) ])
+
+(* The program that found the bug: a store in a loop with no iterations. *)
+let () =
+  let prog =
+    Parse.parse_program
+      "(atomic a 0 (writer t) (protocol v))\n(thread t (for i 0 0 (store l a 1)))"
+  in
+  let reqs = Check.check_program prog in
+  let labels = Wf.program_labels prog in
+  assert (reqs = []);
+  assert (Solve.infer labels reqs = [ ("l", Ord.Rlx) ]);
+  (* it can be pinned, and nothing requires more than rlx *)
+  assert (Solve.check labels reqs [ ("l", Ord.Rlx) ] = []);
+  assert (Solve.check labels reqs [ ("l", Ord.Sc) ] = []);
+  (* so codegen has an ordering for it *)
+  ignore (Codegen.emit prog (Solve.infer labels reqs) reqs)
 
 (* check: a pin is fine when it is at least what every requirement needs. *)
 let () =
-  assert (Solve.check reqs [] = []);
-  assert (Solve.check reqs sigma = []);
-  assert (Solve.check reqs [ ("p.tail_store", Ord.Rel) ] = []);
-  assert (Solve.check reqs [ ("p.tail_store", Ord.Sc) ] = []);
-  assert (Solve.check reqs [ ("p.tail_store", Ord.AcqRel) ] = []);
-  assert (Solve.check reqs [ ("p.tail_load", Ord.Rlx) ] = [])
+  assert (Solve.check labels reqs [] = []);
+  assert (Solve.check labels reqs sigma = []);
+  assert (Solve.check labels reqs [ ("p.tail_store", Ord.Rel) ] = []);
+  assert (Solve.check labels reqs [ ("p.tail_store", Ord.Sc) ] = []);
+  assert (Solve.check labels reqs [ ("p.tail_store", Ord.AcqRel) ] = []);
+  assert (Solve.check labels reqs [ ("p.tail_load", Ord.Rlx) ] = [])
 
 (* check: too weak a pin is a violation naming what it needs, and why. *)
 let () =
-  match Solve.check reqs [ ("p.tail_store", Ord.Rlx) ] with
+  match Solve.check labels reqs [ ("p.tail_store", Ord.Rlx) ] with
   | [ v ] ->
       assert (v.label = "p.tail_store");
       assert (v.pinned = Ord.Rlx);
@@ -55,7 +83,7 @@ let () =
 
 (* check: acq and rel are incomparable, so rel does not satisfy acq. *)
 let () =
-  match Solve.check reqs [ ("p.head_await", Ord.Rel) ] with
+  match Solve.check labels reqs [ ("p.head_await", Ord.Rel) ] with
   | [ v ] ->
       assert (v.needed = Ord.Acq);
       (* only i = 2 reuses a slot *)
@@ -67,7 +95,7 @@ let () =
 (* check: one violation per bad pin, in pin order; good pins add none. *)
 let () =
   let vs =
-    Solve.check reqs
+    Solve.check labels reqs
       [
         ("c.tail_await", Ord.Rlx);
         ("p.tail_store", Ord.Rel);
@@ -80,7 +108,7 @@ let () =
 
 (* check: a pin naming no access is an error, not silently accepted. *)
 let () =
-  match Solve.check reqs [ ("p.tail_stor", Ord.Rel) ] with
+  match Solve.check labels reqs [ ("p.tail_stor", Ord.Rel) ] with
   | _ -> assert false
   | exception Solve.Bad_pin _ -> ()
 
@@ -105,7 +133,7 @@ let () =
 let mixed = [ req "a" Ord.Acq [ ("i", 0) ]; req "a" Ord.Rel [ ("i", 1) ] ]
 
 let () =
-  match Solve.check mixed [ ("a", Ord.Rlx) ] with
+  match Solve.check [ "a" ] mixed [ ("a", Ord.Rlx) ] with
   | [ v ] ->
       assert (v.needed = Ord.AcqRel);
       assert (List.length v.because = 2)
@@ -113,7 +141,7 @@ let () =
 
 (* a pin of acq meets the first requirement but not the second *)
 let () =
-  match Solve.check mixed [ ("a", Ord.Acq) ] with
+  match Solve.check [ "a" ] mixed [ ("a", Ord.Acq) ] with
   | [ v ] ->
       assert (v.needed = Ord.Rel);
       assert (

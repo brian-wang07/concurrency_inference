@@ -2,7 +2,10 @@ open Engine.Ir
 open Ring
 
 let () = assert (List.length ring.threads = 2)
-let orders prog = Engine.Solve.infer (Engine.Check.check_program prog)
+let orders prog =
+  Engine.Solve.infer
+    (Engine.Wf.program_labels prog)
+    (Engine.Check.check_program prog)
 let with_params n k prog = { prog with params = [ ("N", n); ("K", k) ] }
 
 (* The orderings from the hand proof. *)

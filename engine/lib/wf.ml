@@ -158,6 +158,10 @@ let rec labels body =
       | NaRead _ | NaWrite _ | Let _ | Assert _ -> [])
     body
 
+(* every access label in the program, thread by thread *)
+let program_labels prog =
+  List.concat_map (fun th -> labels th.body) prog.threads
+
 let check_labels prog =
   let uses =
     List.concat_map

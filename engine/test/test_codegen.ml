@@ -10,7 +10,7 @@ let contains s sub =
   go 0
 
 let reqs = Check.check_program ring
-let sigma = Solve.infer reqs
+let sigma = Solve.infer (Wf.program_labels ring) reqs
 let generate pins = Codegen.emit ring (Solve.apply_pins sigma pins) reqs
 
 (* Run with --print [label] to write the generated C++ to stdout, with label
