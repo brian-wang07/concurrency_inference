@@ -7,4 +7,6 @@
 ; Cram tests (*.t): shell commands and their expected output. They run the
 ; engine command on the corpus, so both are dependencies.
 (cram
- (deps %{bin:engine} %{project_root}/corpus/spsc_ring.sexp))
+ (deps
+  %{bin:engine}
+  (glob_files %{project_root}/corpus/*.sexp)))
