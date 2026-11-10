@@ -35,3 +35,10 @@ let join a b =
 
 (** returns true if a is at most as strong as b *)
 let leq a b = join a b = b
+
+(* TODO: this should also consider the fact that loads are incompatible with rel an writes with acq; for now there is no sc so this is fine, but later an sc should get weakened to either an acq or rel not acq_rel. *)
+let weaker = function
+  | Rlx -> []
+  | Acq | Rel -> [ Rlx ]
+  | AcqRel -> [ Acq; Rel ]
+  | Sc -> [ AcqRel ]

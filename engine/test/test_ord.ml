@@ -66,3 +66,33 @@ let () =
   List.iter
     (fun s -> assert (of_string s = None))
     [ ""; "relaxed"; "RLX"; "acqrel"; "seq_cst"; " rlx" ]
+
+(* weaker o: the orderings exactly one step below o, checked against leq. *)
+let lt a b = leq a b && a <> b
+
+let () =
+  List.iter
+    (fun o ->
+      let ws = weaker o in
+      (* each is strictly below o, with nothing strictly between *)
+      List.iter
+        (fun w ->
+          assert (lt w o);
+          List.iter (fun z -> assert (not (lt w z && lt z o))) all)
+        ws;
+      (* everything strictly below o is at or below one of them *)
+      List.iter
+        (fun z -> if lt z o then assert (List.exists (fun w -> leq z w) ws))
+        all;
+      (* no duplicates *)
+      assert (List.length (List.sort_uniq compare ws) = List.length ws))
+    all
+
+(* The table itself: acq_rel has two lower covers because acq and rel are
+   incomparable, and only rlx has none. *)
+let () =
+  assert (weaker Rlx = []);
+  assert (weaker Acq = [ Rlx ]);
+  assert (weaker Rel = [ Rlx ]);
+  assert (List.sort compare (weaker AcqRel) = [ Acq; Rel ]);
+  assert (weaker Sc = [ AcqRel ])

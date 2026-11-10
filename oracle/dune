@@ -1,0 +1,14 @@
+; The oracle: checks the engine's inferred orderings against GenMC. Not part
+; of `dune test`, since it needs GenMC installed. Run it with
+;   dune exec oracle/oracle.exe -- corpus/*.sexp
+; with GENMC set to the genmc binary if it isn't on your PATH.
+(executable
+ (name oracle)
+ (libraries engine))
+
+; oracle.t runs the oracle against a stub GenMC, so it needs no GenMC and is
+; part of `dune test`.
+(cram
+ (deps
+  oracle.exe
+  (glob_files %{project_root}/corpus/*.sexp)))

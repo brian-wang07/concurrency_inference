@@ -18,22 +18,9 @@ let usage_error fmt = Printf.ksprintf (fun msg -> raise (Usage msg)) fmt
 (* A failure in the program being processed, already formatted for the user. *)
 exception Rejected of string
 
-let read_file path = In_channel.with_open_bin path In_channel.input_all
-
-(* Runs every stage up to inference. Each stage's error names the file. *)
+(* Runs every stage up to inference, or rejects the program. *)
 let analyse path =
-  let reject fmt = Printf.ksprintf (fun msg -> raise (Rejected msg)) fmt in
-  match
-    let prog = Parse.parse_program (read_file path) in
-    Wf.check prog;
-    let reqs = Check.check_program prog in
-    (prog, reqs, Solve.infer (Wf.program_labels prog) reqs)
-  with
-  | result -> result
-  | exception Sys_error msg -> reject "%s" msg
-  | exception Parse.Parse_error (line, msg) -> reject "%s:%d: %s" path line msg
-  | exception Wf.Wf_error msg -> reject "%s: %s" path msg
-  | exception Check.Type_error msg -> reject "%s: type error: %s" path msg
+  match Pipeline.run path with Ok r -> r | Error msg -> raise (Rejected msg)
 
 (* " (i=0, j=2)", or "" outside any loop *)
 let with_loops loops =
@@ -46,7 +33,7 @@ let with_loops loops =
 
 (* One line per label: its ordering, and why when it is stronger than rlx. *)
 let infer path =
-  let _, reqs, sigma = analyse path in
+  let { Pipeline.reqs; sigma; _ } = analyse path in
   let width =
     List.fold_left (fun w (label, _) -> max w (String.length label)) 0 sigma
   in
@@ -76,7 +63,7 @@ let parse_pin s =
    what is required is reported, but the file is still written: emitting
    deliberately weakened programs for GenMC is what pins are for. *)
 let emit path out pins =
-  let prog, reqs, sigma = analyse path in
+  let { Pipeline.prog; reqs; sigma } = analyse path in
   let violations =
     match Solve.check (Wf.program_labels prog) reqs pins with
     | v -> v
